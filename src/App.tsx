@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { BrowserProvider, Contract, formatUnits, Interface } from 'ethers';
+import { BrowserProvider, Contract, formatUnits, Interface, JsonRpcProvider } from 'ethers';
 import { useEIP6963Providers } from './hooks/useEIP6963';
 import WalletModal from './components/WalletModal';
 
@@ -59,6 +59,13 @@ const ERC8004_ABI = [
     stateMutability: 'nonpayable',
     inputs: [],
     outputs: []
+  },
+  {
+    name: 'ownerOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [{ name: 'owner', type: 'address' }]
   },
   {
     name: 'AgentRegistered',
@@ -281,7 +288,7 @@ export default function App() {
       addLog('-', '---', '', 'text-text-muted');
       addLog('·', 'tx hash: ' + tx.hash, '', 'text-text-dim', false, true);
       addLog('·', 'block: #' + receipt.blockNumber, '', 'text-text-dim', false, true);
-      if (tokenId) addLog('·', 'agent token ID: ' + tokenId, '', 'text-text-dim', false, true);
+      if (tokenId != null) addLog('·', 'agent token ID: ' + tokenId, '', 'text-text-dim', false, true);
       addLog('·', 'owner: ' + walletAddress, '', 'text-text-dim', false, true);
       addLog('✓', 'ERC-8004 NFT minted on Base Mainnet ✓', '', 'text-accent-green');
 
@@ -300,9 +307,31 @@ export default function App() {
     setRegistryError('');
     setRegistryAgents([]);
     try {
-      const resp = await fetch('https://8004scan.io/api/v1/public/agents?limit=5');
-      const data = await resp.json();
-      setRegistryAgents(data.agents || data.items || data || []);
+      // Create a provider to read from the contract
+      const rpcProvider = (window as any).ethereum ? new BrowserProvider((window as any).ethereum) : new JsonRpcProvider('https://mainnet.base.org');
+      const contract = new Contract(ERC8004_ADDRESS, ERC8004_ABI, rpcProvider);
+      
+      const agents = [];
+      // Try to fetch the latest tokens (max 5)
+      // Since there's no totalSupply, we'll try a few IDs sequentially until one fails
+      // We know ID 0 exists, so we'll start there
+      for (let i = 0; i < 20; i++) {
+        try {
+          const data = await contract.getAgent(i);
+          const owner = await contract.ownerOf(i).catch(() => 'unknown');
+          agents.push({
+            id: i,
+            name: data[0],
+            owner: owner
+          });
+          if (agents.length >= 5) break;
+        } catch (err) {
+          // Reverts when token doesn't exist
+          break;
+        }
+      }
+      
+      setRegistryAgents(agents);
     } catch (e: any) {
       setRegistryError(e.message);
     } finally {
@@ -682,11 +711,11 @@ export default function App() {
                   <div className="font-sans font-bold text-base tracking-[0.15em] text-accent-green mb-3">✓ AGENT REGISTERED ON BASE MAINNET</div>
                   <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">NAME</span><span className="text-[11px] text-text-primary text-right break-all">{deployedAgent.name}</span></div>
                   <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">ARCHETYPE</span><span className="text-[11px] text-text-primary text-right break-all">{deployedAgent.archetype}</span></div>
-                  {deployedAgent.tokenId && <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">TOKEN ID</span><span className="text-[11px] text-text-primary text-right break-all">{deployedAgent.tokenId}</span></div>}
+                  {deployedAgent.tokenId != null && <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">TOKEN ID</span><span className="text-[11px] text-text-primary text-right break-all">{deployedAgent.tokenId}</span></div>}
                   <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">OWNER</span><span className="text-[11px] text-text-primary text-right break-all">{deployedAgent.owner}</span></div>
                   <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">BLOCK</span><span className="text-[11px] text-text-primary text-right break-all">{deployedAgent.blockNumber}</span></div>
                   <div className="flex justify-between py-1.5 border-b border-white/5"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">TX HASH</span><span className="text-[11px] text-text-primary text-right break-all"><a href={`https://basescan.org/tx/${deployedAgent.txHash}`} target="_blank" rel="noreferrer" className="text-accent-cyan hover:underline">{deployedAgent.txHash.slice(0,20)}… ↗</a></span></div>
-                  <div className="flex justify-between py-1.5 border-b mt-1 border-transparent"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">REGISTRY</span><span className="text-[11px] text-text-primary text-right break-all"><a href="https://8004scan.io" target="_blank" rel="noreferrer" className="text-accent-cyan hover:underline">8004scan.io ↗</a></span></div>
+                  <div className="flex justify-between py-1.5 border-b mt-1 border-transparent"><span className="text-[10px] text-text-dim tracking-[0.12em] font-sans font-semibold pr-3 shrink-0">REGISTRY</span><span className="text-[11px] text-text-primary text-right break-all"><a href={`https://basescan.org/address/${ERC8004_ADDRESS}`} target="_blank" rel="noreferrer" className="text-accent-cyan hover:underline">basescan.org ↗</a></span></div>
                 </div>
               </div>
             )}
@@ -727,14 +756,14 @@ export default function App() {
                 <div className="text-text-dim">· session-key validated on Base Mainnet</div>
                 <div className="h-2"></div>
                 {registryQuerying ? (
-                  <div className="text-accent-cyan">· querying ERC-8004 registry…</div>
+                  <div className="text-accent-cyan">· querying smart contract on Base Mainnet…</div>
                 ) : registryError ? (
-                  <div className="text-accent-red">✕ registry fetch failed: {registryError}</div>
+                  <div className="text-accent-red">✕ contract state fetch failed: {registryError}</div>
                 ) : registryAgents.length > 0 ? (
                   <>
-                    <div className="text-accent-green mb-2">✓ registry query successful</div>
+                    <div className="text-accent-green mb-2">✓ local contract state fetched</div>
                     {registryAgents.map((a, i) => (
-                      <div key={i} className="text-text-dim text-[11px]">· [{i+1}] {a.name || a.id || 'Agent'} — owner: {(a.owner||'').slice(0,10)}…</div>
+                      <div key={i} className="text-text-dim text-[11px]">· [ID: {a.id}] {a.name || 'Agent'} — owner: {(a.owner||'').slice(0,10)}…</div>
                     ))}
                   </>
                 ) : (
