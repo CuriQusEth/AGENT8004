@@ -23,6 +23,44 @@ const ERC8004_ABI = [
     outputs: [{ name: 'tokenId', type: 'uint256' }]
   },
   {
+    name: 'updateAgentURI',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'tokenId', type: 'uint256' },
+      { name: 'newURI', type: 'string' }
+    ],
+    outputs: []
+  },
+  {
+    name: 'getAgent',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'archetype', type: 'string' },
+          { name: 'catchphrase', type: 'string' },
+          { name: 'riskTolerance', type: 'uint256' },
+          { name: 'dailyCap', type: 'uint256' },
+          { name: 'txCap', type: 'uint256' },
+          { name: 'active', type: 'bool' }
+        ]
+      }
+    ]
+  },
+  {
+    name: 'withdraw',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [],
+    outputs: []
+  },
+  {
     name: 'AgentRegistered',
     type: 'event',
     inputs: [
@@ -73,6 +111,15 @@ export default function App() {
   const [registryAgents, setRegistryAgents] = useState<any[]>([]);
   const [registryQuerying, setRegistryQuerying] = useState(false);
   const [registryError, setRegistryError] = useState('');
+
+  const [readTokenId, setReadTokenId] = useState('');
+  const [readAgentData, setReadAgentData] = useState<any>(null);
+  const [isReadingTarget, setIsReadingTarget] = useState(false);
+
+  const [updateTokenId, setUpdateTokenId] = useState('');
+  const [updateTokenURI, setUpdateTokenURI] = useState('');
+  const [isUpdatingTarget, setIsUpdatingTarget] = useState(false);
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
 
   useEffect(() => {
     if (toast) {
@@ -204,9 +251,9 @@ export default function App() {
       const contract = new Contract(ERC8004_ADDRESS, ERC8004_ABI, signer);
 
       let gasEstimate = 500000n;
-      try { gasEstimate = await contract.mintAgent.estimateGas(dataUri, agentName, archetype, catchphrase || "", parseInt(riskVal.toString()), parseInt(dailyCap.toString()), parseInt(txCap.toString()), { value: 0n }); } catch(e) {}
+      try { gasEstimate = await contract.mintAgent.estimateGas(dataUri, agentName, archetype, catchphrase || "", BigInt(parseInt(riskVal.toString()) || 0), BigInt(parseInt(dailyCap.toString()) || 0), BigInt(parseInt(txCap.toString()) || 0), { value: 0n }); } catch(e) {}
 
-      const tx = await contract.mintAgent(dataUri, agentName, archetype, catchphrase || "", parseInt(riskVal.toString()), parseInt(dailyCap.toString()), parseInt(txCap.toString()), { gasLimit: gasEstimate + 50000n });
+      const tx = await contract.mintAgent(dataUri, agentName, archetype, catchphrase || "", BigInt(parseInt(riskVal.toString()) || 0), BigInt(parseInt(dailyCap.toString()) || 0), BigInt(parseInt(txCap.toString()) || 0), { gasLimit: gasEstimate + 50000n });
 
       updateLastLog({ icon: '✓', iconClass: 'text-accent-green', text: 'tx submitted: ' + tx.hash.slice(0, 18) + '…', right: `<a href="https://basescan.org/tx/${tx.hash}" target="_blank" class="text-accent-cyan hover:underline">basescan ↗</a>`, isHtml: true });
 
@@ -260,6 +307,62 @@ export default function App() {
       setRegistryError(e.message);
     } finally {
       setRegistryQuerying(false);
+    }
+  };
+
+  const executeGetAgent = async () => {
+    if (!readTokenId || !provider) return;
+    setIsReadingTarget(true);
+    setReadAgentData(null);
+    try {
+      const contract = new Contract(ERC8004_ADDRESS, ERC8004_ABI, provider);
+      const data = await contract.getAgent(BigInt(readTokenId));
+      setReadAgentData({
+        name: data[0],
+        archetype: data[1],
+        catchphrase: data[2],
+        riskTolerance: data[3].toString(),
+        dailyCap: data[4].toString(),
+        txCap: data[5].toString(),
+        active: data[6]
+      });
+      showToast('Agent data retrieved.', 'success');
+    } catch(e: any) {
+      showToast('Failed to retrieve agent: ' + (e.reason || e.message), 'error');
+    } finally {
+      setIsReadingTarget(false);
+    }
+  };
+
+  const executeUpdateAgentURI = async () => {
+    if (!updateTokenId || !updateTokenURI || !signer) return;
+    setIsUpdatingTarget(true);
+    try {
+      const contract = new Contract(ERC8004_ADDRESS, ERC8004_ABI, signer);
+      const tx = await contract.updateAgentURI(BigInt(updateTokenId), updateTokenURI);
+      showToast('Updating URI... Transaction submitted.', 'info');
+      await tx.wait();
+      showToast('Agent URI successfully updated!', 'success');
+    } catch(e: any) {
+      showToast('Update failed: ' + (e.reason || e.message), 'error');
+    } finally {
+      setIsUpdatingTarget(false);
+    }
+  };
+
+  const executeWithdraw = async () => {
+    if (!signer) return;
+    setIsWithdrawing(true);
+    try {
+      const contract = new Contract(ERC8004_ADDRESS, ERC8004_ABI, signer);
+      const tx = await contract.withdraw();
+      showToast('Withdraw transaction submitted.', 'info');
+      await tx.wait();
+      showToast('Withdraw successful!', 'success');
+    } catch(e: any) {
+      showToast('Withdraw failed: ' + (e.reason || e.message), 'error');
+    } finally {
+      setIsWithdrawing(false);
     }
   };
 
@@ -590,9 +693,36 @@ export default function App() {
             
             <div className="mb-8">
               <div className="flex items-center gap-2 font-sans text-[13px] font-bold tracking-[0.2em] text-text-dim mb-5 select-none after:content-[''] after:flex-1 after:h-px after:bg-panel-border after:ml-2">
-                <span>&gt;</span> LIVE CONSOLE
+                <span>&gt;</span> LIVE CONSOLE & CONTRACT FUNCTIONS
               </div>
-              <div className="border border-panel-border bg-card p-5 rounded-sm min-h-[280px] text-xs leading-loose">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="border border-panel-border bg-card p-5 rounded-sm flex flex-col">
+                  <div className="font-sans font-bold tracking-[0.1em] text-accent-cyan mb-3">READ: getAgent(tokenId)</div>
+                  <input type="number" placeholder="Token ID" value={readTokenId} onChange={e => setReadTokenId(e.target.value)} className="w-full bg-darkest border border-panel-border rounded-sm p-3 text-white text-xs mb-3 outline-none focus:border-accent-cyan transition-colors" />
+                  <button onClick={executeGetAgent} disabled={isReadingTarget || !provider} className="font-sans font-bold tracking-[0.1em] text-xs px-4 py-2 border border-accent-cyan text-accent-cyan bg-transparent hover:bg-accent-cyan/10 rounded-sm mb-4 disabled:opacity-50">EXECUTE</button>
+                  {readAgentData && (
+                    <div className="text-[11px] text-text-dim mt-2 bg-darkest p-3 border border-panel-border rounded-sm overflow-hidden text-ellipsis">
+                      <div className="flex justify-between border-b border-white/5 py-1"><span>Name:</span><span className="text-white">{readAgentData.name}</span></div>
+                      <div className="flex justify-between border-b border-white/5 py-1"><span>Archetype:</span><span className="text-white">{readAgentData.archetype}</span></div>
+                      <div className="flex justify-between border-b border-white/5 py-1"><span>Catchphrase:</span><span className="text-white">{readAgentData.catchphrase || 'N/A'}</span></div>
+                      <div className="flex justify-between border-b border-white/5 py-1"><span>Daily Cap:</span><span className="text-white">{readAgentData.dailyCap}</span></div>
+                      <div className="flex justify-between py-1"><span>Risk:</span><span className="text-white">{readAgentData.riskTolerance}/10</span></div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border border-panel-border bg-card p-5 rounded-sm flex flex-col">
+                  <div className="font-sans font-bold tracking-[0.1em] text-accent-green mb-3">WRITE: updateAgentURI(tokenId, newURI)</div>
+                  <input type="number" placeholder="Token ID" value={updateTokenId} onChange={e => setUpdateTokenId(e.target.value)} className="w-full bg-darkest border border-panel-border rounded-sm p-3 text-white text-xs mb-3 outline-none focus:border-accent-cyan transition-colors" />
+                  <input type="text" placeholder="New IPFS/Data URI" value={updateTokenURI} onChange={e => setUpdateTokenURI(e.target.value)} className="w-full bg-darkest border border-panel-border rounded-sm p-3 text-white text-xs mb-3 outline-none focus:border-accent-cyan transition-colors" />
+                  <button onClick={executeUpdateAgentURI} disabled={isUpdatingTarget || !signer} className="font-sans font-bold tracking-[0.1em] text-xs px-4 py-2 border border-accent-green text-accent-green bg-transparent hover:bg-accent-green/10 rounded-sm mb-4 disabled:opacity-50">EXECUTE</button>
+                  
+                  <div className="font-sans font-bold tracking-[0.1em] text-accent-yellow mb-3 mt-4">ADMIN: withdraw()</div>
+                  <button onClick={executeWithdraw} disabled={isWithdrawing || !signer} className="font-sans font-bold tracking-[0.1em] text-xs px-4 py-2 border border-accent-yellow text-accent-yellow bg-transparent hover:bg-accent-yellow/10 rounded-sm disabled:opacity-50">EXECUTE</button>
+                </div>
+              </div>
+
+              <div className="mt-4 border border-panel-border bg-card p-5 rounded-sm min-h-[140px] text-xs leading-loose">
                 <div className="text-text-dim">· agent runtime connected</div>
                 <div className="text-text-dim">· session-key validated on Base Mainnet</div>
                 <div className="h-2"></div>
