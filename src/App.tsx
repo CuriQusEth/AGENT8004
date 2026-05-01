@@ -3,16 +3,34 @@ import { BrowserProvider, Contract, formatUnits, Interface } from 'ethers';
 import { useEIP6963Providers } from './hooks/useEIP6963';
 import WalletModal from './components/WalletModal';
 
-const ERC8004_ADDRESS = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+const ERC8004_ADDRESS = '0x434B04634C542Be57fe21C1E1C46d3Cad492e496';
 const BASE_CHAIN_HEX = '0x2105';
 
 const ERC8004_ABI = [
   {
-    name: 'mint',
+    name: 'mintAgent',
     type: 'function',
     stateMutability: 'payable',
-    inputs: [{ name: 'uri', type: 'string' }],
+    inputs: [
+      { name: 'uri', type: 'string' },
+      { name: 'name', type: 'string' },
+      { name: 'archetype', type: 'string' },
+      { name: 'catchphrase', type: 'string' },
+      { name: 'riskTolerance', type: 'uint256' },
+      { name: 'dailyCap', type: 'uint256' },
+      { name: 'txCap', type: 'uint256' }
+    ],
     outputs: [{ name: 'tokenId', type: 'uint256' }]
+  },
+  {
+    name: 'AgentRegistered',
+    type: 'event',
+    inputs: [
+      { name: 'tokenId', type: 'uint256', indexed: true },
+      { name: 'owner', type: 'address', indexed: true },
+      { name: 'name', type: 'string', indexed: false },
+      { name: 'archetype', type: 'string', indexed: false }
+    ]
   },
   {
     name: 'Transfer',
@@ -185,10 +203,10 @@ export default function App() {
       const t0 = Date.now();
       const contract = new Contract(ERC8004_ADDRESS, ERC8004_ABI, signer);
 
-      let gasEstimate = 200000n;
-      try { gasEstimate = await contract.mint.estimateGas(dataUri, { value: 0n }); } catch(e) {}
+      let gasEstimate = 500000n;
+      try { gasEstimate = await contract.mintAgent.estimateGas(dataUri, agentName, archetype, catchphrase || "", parseInt(riskVal.toString()), parseInt(dailyCap.toString()), parseInt(txCap.toString()), { value: 0n }); } catch(e) {}
 
-      const tx = await contract.mint(dataUri, { gasLimit: gasEstimate + 50000n });
+      const tx = await contract.mintAgent(dataUri, agentName, archetype, catchphrase || "", parseInt(riskVal.toString()), parseInt(dailyCap.toString()), parseInt(txCap.toString()), { gasLimit: gasEstimate + 50000n });
 
       updateLastLog({ icon: '✓', iconClass: 'text-accent-green', text: 'tx submitted: ' + tx.hash.slice(0, 18) + '…', right: `<a href="https://basescan.org/tx/${tx.hash}" target="_blank" class="text-accent-cyan hover:underline">basescan ↗</a>`, isHtml: true });
 
@@ -204,9 +222,11 @@ export default function App() {
       for (const log2 of receipt.logs) {
         try {
           const parsed = iface.parseLog(log2 as any);
-          if (parsed && parsed.name === 'Transfer') {
-            tokenId = parsed.args[2].toString();
+          if (parsed && parsed.name === 'AgentRegistered') {
+            tokenId = parsed.args[0].toString();
             break;
+          } else if (parsed && parsed.name === 'Transfer') {
+            tokenId = parsed.args[2].toString();
           }
         } catch(e) {}
       }
